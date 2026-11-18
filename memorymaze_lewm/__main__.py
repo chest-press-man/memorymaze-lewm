@@ -8,12 +8,12 @@ def main():
     parser=argparse.ArgumentParser(description='Memory Maze offline LeWM pipeline')
     sub=parser.add_subparsers(dest='command',required=True)
     p=sub.add_parser('acquire');p.add_argument('--root',default='data');p.add_argument('--train',type=int,default=160);p.add_argument('--eval',type=int,default=30);p.add_argument('--eval-skip',type=int,default=10);p.add_argument('--workers',type=int,default=4)
-    p=sub.add_parser('prepare');p.add_argument('--root',default='data')
+    p=sub.add_parser('prepare');p.add_argument('--root',default='data');p.add_argument('--scaled-protocol',action='store_true');p.add_argument('--model-train',type=int,default=500)
     p=sub.add_parser('pretrained');p.add_argument('--out',default='data/pretrained/cube')
-    p=sub.add_parser('segments');p.add_argument('--splits',default='data/splits.json');p.add_argument('--out',default='data/segments_candidates.json');p.add_argument('--max-per-episode',type=int,default=1)
+    p=sub.add_parser('segments');p.add_argument('--splits',default='data/splits.json');p.add_argument('--out',default='data/segments_candidates.json');p.add_argument('--max-per-episode',type=int,default=1);p.add_argument('--max-step',type=int,default=50)
     p=sub.add_parser('review');p.add_argument('--segments',default='data/segments_candidates.json');p.add_argument('--decisions',required=True);p.add_argument('--out',default='data/segments_reviewed.json')
     p=sub.add_parser('train');p.add_argument('--config',default='configs/pilot.json');p.add_argument('--splits',default='data/splits.json');p.add_argument('--run',required=True);p.add_argument('--pretrained');p.add_argument('--resume',action='store_true');p.add_argument('--model-factory');p.add_argument('--stop-after',type=int);p.add_argument('--init-checkpoint')
-    p=sub.add_parser('rollout');p.add_argument('--checkpoint',required=True);p.add_argument('--segments',default='data/segments_reviewed.json');p.add_argument('--out',required=True);p.add_argument('--device',default='cpu');p.add_argument('--factory');p.add_argument('--allow-unreviewed',action='store_true')
+    p=sub.add_parser('rollout');p.add_argument('--checkpoint',required=True);p.add_argument('--segments',default='data/segments_reviewed.json');p.add_argument('--out',required=True);p.add_argument('--device',default='cpu');p.add_argument('--factory');p.add_argument('--allow-unreviewed',action='store_true');p.add_argument('--max-step',type=int,default=50);p.add_argument('--threads',type=int,default=3)
     p=sub.add_parser('probe');p.add_argument('--latents',required=True);p.add_argument('--out',required=True)
     p=sub.add_parser('diagnose');p.add_argument('--checkpoint',required=True);p.add_argument('--segments',default='data/segments_reviewed.json');p.add_argument('--out',required=True);p.add_argument('--device',default='cpu')
     p=sub.add_parser('export');p.add_argument('--checkpoint',required=True);p.add_argument('--out',required=True)
@@ -23,13 +23,13 @@ def main():
         acquire(args.root,args.train,args.eval,args.eval_skip,args.workers)
     elif args.command=='prepare':
         from .data import make_splits
-        print(make_splits(args.root)['counts'])
+        print(make_splits(args.root,counts=(args.model_train,100,300,100,200),protocol=True)['counts'] if args.scaled_protocol else make_splits(args.root)['counts'])
     elif args.command=='pretrained':
         from .pretrained import download_cube
         print(download_cube(args.out))
     elif args.command=='segments':
         from .segments import build_segments
-        result=build_segments(args.splits,args.out,args.max_per_episode)
+        result=build_segments(args.splits,args.out,args.max_per_episode,args.max_step)
         print('Candidates:',len(result['segments']),'without candidate:',len(result['rejected']))
     elif args.command=='review':
         result=read_json(args.segments);decisions=read_json(args.decisions)
@@ -45,7 +45,7 @@ def main():
         train(args.config,args.splits,args.run,args.pretrained,args.resume,args.model_factory,args.stop_after,args.init_checkpoint)
     elif args.command=='rollout':
         from .rollout import extract
-        extract(args.checkpoint,args.segments,args.out,args.device,args.factory,args.allow_unreviewed)
+        extract(args.checkpoint,args.segments,args.out,args.device,args.factory,args.allow_unreviewed,args.max_step,args.threads)
     elif args.command=='probe':
         from .evaluate import run_probe
         result=run_probe(args.latents,args.out);print(result['selected_lambda'])

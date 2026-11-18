@@ -1,5 +1,7 @@
 # Memory Maze LeWM 파이프라인
 
+> **현재 실험: 500개 baseline v2.** LeWM train/val 500/100, Probe 후보 train/val/test 300/100/200. 0-step 관측 latent와 1~50 모든 예측 latent를 구분해 단일 Probe로 읽는다. 실행·선택 기준은 [실험 계획](docs/BASELINE_500_PLAN.md), 정확한 재실행·2,000개 비교는 [재현·팀 전달](docs/BASELINE_V2_HANDOFF.md)을 따른다. 아래 소규모 실험 설명은 이전 실행 기록이다.
+
 > **GitHub 소스 저장소:** 데이터·가중치·실험 결과·가상환경은 포함하지 않는다. 처음 clone한 팀원은 [팀 실행·협업 안내](TEAM_GUIDE.md)를 먼저 따른다. 아래 `artifacts/` 관련 설명은 기존 파일 전달 방식이며 clone만으로 해당 파일이 생기지는 않는다.
 >
 > 기존 연구실 GPU 학습·Probe 평가 기록은 로컬에 별도 보관돼 있다. 아래의 GPU 미실행 설명은 과거 CPU 점검 시점의 기록이며, 이 저장소가 클러스터 실행까지 검증됐다는 뜻은 아니다. 장기 기억 성능 개선은 아직 입증되지 않았다.

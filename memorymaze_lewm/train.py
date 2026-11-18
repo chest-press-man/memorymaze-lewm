@@ -38,13 +38,45 @@ def loss_values(model,pixels,actions,regularizer,weight):
     return mse+weight*reg,mse,reg,out['emb'].detach().std(dim=(0,1)).mean()
 
 
+def checkpoint_eligible(mse,latent_std,initial_std):
+    return bool(np.isfinite([mse,latent_std,initial_std]).all() and initial_std>0 and latent_std>=max(1e-3,.1*initial_std))
+
+
+def fixed_validation_index(paths,seed):
+    rng=np.random.default_rng(seed);entries=[]
+    for path in paths:
+        d=cached_episode(path)
+        for _ in range(1000):
+            start=int(rng.integers(len(d['image'])-3))
+            try:make_window(d,start);break
+            except ValueError:continue
+        else:raise ValueError('No valid validation window')
+        entries.append({'path':path,'start':start})
+    return entries
+
+
+def indexed_validation(model,entries,batch_size,stats,size,device,regularizer,weight):
+    values=[];weights=[]
+    with torch.inference_mode():
+        for begin in range(0,len(entries),batch_size):
+            batch=entries[begin:begin+batch_size];pixels=[];actions=[]
+            for entry in batch:
+                images,acts=make_window(cached_episode(entry['path']),entry['start'])
+                pixels.append(preprocess(images,size));actions.append(normalize_action(acts,stats))
+            vals=loss_values(model,torch.stack(pixels).to(device),torch.from_numpy(np.stack(actions)).to(device),regularizer,weight)
+            values.append([float(x) for x in vals[1:]]);weights.append(len(batch))
+    return np.average(values,axis=0,weights=weights).tolist()
+
+
 def save_checkpoint(path,value):
     path=Path(path);tmp=path.with_suffix('.tmp');torch.save(value,tmp);tmp.replace(path)
 
 
 def train(config_path,splits_path,run_dir,pretrained_dir=None,resume=False,model_factory=None,stop_after=None,init_checkpoint=None):
     if init_checkpoint and (resume or pretrained_dir):raise ValueError('init_checkpoint cannot be combined with pretrained or resume')
-    cfg=read_json(config_path);splits=read_json(splits_path)['splits'];validate_splits(splits)
+    cfg=read_json(config_path);split_record=read_json(splits_path);splits=split_record['splits'];validate_splits(splits)
+    normalizer_paths=split_record.get('normalizer_train',splits['model_train'])
+    if not set(normalizer_paths)<=set(splits['model_train']):raise ValueError('Action normalizer must use model-train episodes only')
     if cfg['history']!=3 or cfg['frameskip']!=1 or cfg['batch_size']<2:raise ValueError('Expected history3/frameskip1/batch>=2')
     device=cfg['device']
     if device=='cuda' and not torch.cuda.is_available():raise RuntimeError('CUDA unavailable; choose CPU pilot explicitly')
@@ -76,8 +108,8 @@ def train(config_path,splits_path,run_dir,pretrained_dir=None,resume=False,model
                       'unused_source_keys':[k for k in source['model'] if k not in shared]}
         else:model.load_state_dict(source['model'],strict=True);transfer={'reinitialized':[]}
         provenance={'source_checkpoint':str(Path(init_checkpoint).resolve()),'sha256':sha256(init_checkpoint),**transfer}
-        stats=action_stats(splits['model_train'])
-    else:model,model_cfg,provenance=initialize(pretrained_dir,model_factory);stats=action_stats(splits['model_train'])
+        stats=action_stats(normalizer_paths)
+    else:model,model_cfg,provenance=initialize(pretrained_dir,model_factory);stats=action_stats(normalizer_paths)
     if resume and step>=cfg['updates']:
         print('Configured training already complete; existing artifacts preserved.',flush=True)
         return run/'checkpoints/best.pt'
@@ -96,11 +128,25 @@ def train(config_path,splits_path,run_dir,pretrained_dir=None,resume=False,model
               'pretrained_weights_hash':sha256(Path(pretrained_dir)/'weights.pt') if pretrained_dir else None}
     if not resume:
         write_json(run/'config.json',metadata);write_json(run/'splits.json',read_json(splits_path))
+    validation_index=fixed_validation_index(splits['model_val'],cfg['seed']+10000) if cfg.get('validation_each_episode') else None
+    model.eval()
+    cpu_state=torch.get_rng_state();cuda_state=torch.cuda.get_rng_state_all() if device=='cuda' else None
+    if resume and 'initial_validation_std' in checkpoint:
+        initial_std=checkpoint['initial_validation_std']
+    else:
+        initial_index=validation_index or fixed_validation_index(splits['model_val'],cfg['seed']+10000)
+        initial_values=indexed_validation(model,initial_index,cfg['batch_size'],stats,cfg['image_size'],device,regularizer,cfg['sigreg_weight'])
+        initial_std=initial_values[2]
+        if not np.isfinite(initial_values).all() or initial_std<=0:raise FloatingPointError('Invalid initial validation representation')
+        write_json(run/'initial_validation.json',{'mse':initial_values[0],'sigreg':initial_values[1],'latent_std':initial_std,'eligible_std_floor':max(1e-3,.1*initial_std)})
+    torch.set_rng_state(cpu_state)
+    if cuda_state is not None:torch.cuda.set_rng_state_all(cuda_state)
+    if validation_index is not None:write_json(run/'validation_index.json',validation_index)
     if device=='cuda':torch.cuda.reset_peak_memory_stats()
     started=time.perf_counter()
     def snapshot():
         return {'model':model.state_dict(),'model_config':model_cfg,'config':cfg,'action_stats':stats,
-                'initialization':provenance,'optimizer':optimizer.state_dict(),'update':step,'best_validation_mse':best,
+                'initialization':provenance,'initial_validation_std':initial_std,'optimizer':optimizer.state_dict(),'update':step,'best_validation_mse':best,
                 'sampler_state':rng.bit_generator.state,'torch_rng':torch.get_rng_state(),
                 'numpy_rng':np.random.get_state(),'python_rng':random.getstate(),
                 'cuda_rng':torch.cuda.get_rng_state_all() if device=='cuda' else None,'signature':signature}
@@ -127,24 +173,27 @@ def train(config_path,splits_path,run_dir,pretrained_dir=None,resume=False,model
                 cpu_rng=torch.get_rng_state();cuda_rng=torch.cuda.get_rng_state_all() if device=='cuda' else None
                 with torch.inference_mode():
                     vrng=np.random.default_rng(cfg['seed']+10000)
-                    for _ in range(cfg['validation_batches']):
+                    for _ in range(0 if validation_index is not None else cfg['validation_batches']):
                         vp,va=make_batch(splits['model_val'],vrng,cfg['batch_size'],stats,cfg['image_size'])
                         vals=loss_values(model,vp.to(device),va.to(device),regularizer,cfg['sigreg_weight'])
                         values.append([float(x) for x in vals[1:]])
+                if validation_index is not None:
+                    values=indexed_validation(model,validation_index,cfg['batch_size'],stats,cfg['image_size'],device,regularizer,cfg['sigreg_weight'])
                 torch.set_rng_state(cpu_rng)
                 if cuda_rng is not None:torch.cuda.set_rng_state_all(cuda_rng)
-                row['validation_mse'],row['validation_sigreg'],row['validation_latent_std']=np.mean(values,0).tolist()
+                row['validation_mse'],row['validation_sigreg'],row['validation_latent_std']=(values if validation_index is not None else np.mean(values,0).tolist())
                 if not np.isfinite(values).all():raise FloatingPointError('Nonfinite validation')
-                is_best=row['validation_mse']<best and row['validation_latent_std']>1e-6
+                is_best=row['validation_mse']<best and checkpoint_eligible(row['validation_mse'],row['validation_latent_std'],initial_std)
                 if is_best:best=row['validation_mse']
                 state=snapshot();save_checkpoint(last,state)
                 if is_best:save_checkpoint(run/'checkpoints/best.pt',state)
             log.write(json.dumps(row)+'\n');log.flush();print(json.dumps(row),flush=True)
     delta={k:float((v.detach().cpu()-before[k]).abs().max()) for k,v in model.state_dict().items() if k in before}
     summary={'updates':step,'configured_updates':cfg['updates'],'completed':step==cfg['updates'],'elapsed_seconds':time.perf_counter()-started,'changed_parameter_tensors':sum(v>0 for v in delta.values()),
-             'max_parameter_change':max(delta.values()),'best_validation_mse':best,
+             'max_parameter_change':max(delta.values()),'encoder_changed_tensors':sum(v>0 for k,v in delta.items() if k.startswith('encoder.')),'predictor_changed_tensors':sum(v>0 for k,v in delta.items() if k.startswith('predictor.')),'best_validation_mse':best,'initial_validation_std':initial_std,'eligible_std_floor':max(1e-3,.1*initial_std),
              'peak_gpu_allocated_bytes':torch.cuda.max_memory_allocated() if device=='cuda' else None,
-             'purpose':cfg['purpose'],'claim':'pipeline execution only; no converged-memory claim for pilot'}
+             'purpose':cfg['purpose'],'claim':'fixed-budget execution; convergence and memory performance require separate evidence'}
     write_json(run/'training_summary.json',summary)
     print(json.dumps(summary),flush=True)
+    if not (run/'checkpoints/best.pt').exists():raise RuntimeError('No checkpoint passed the preregistered variance and finite-value gate')
     return run/'checkpoints/best.pt'

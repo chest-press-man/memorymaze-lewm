@@ -1,5 +1,7 @@
 # 팀 실행·협업 안내
 
+현재 500개 baseline과 2,000개 비교는 [v2 재현·전달 문서](docs/BASELINE_V2_HANDOFF.md)를 우선한다. 아래 160/30 데이터 예시는 이전 소규모 연결 점검이다.
+
 ## 저장소 범위
 
 Memory Maze 9×9의 저장 RGB·action으로 LeWM을 학습하고, 초기 관측 이후 예측 latent에서 빨간 공의 상대 좌표를 읽는 평가 파이프라인이다. Simulator를 실행하지 않고 공식 NPZ를 사용한다.
