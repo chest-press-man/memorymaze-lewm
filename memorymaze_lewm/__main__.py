@@ -8,7 +8,8 @@ def main():
     parser=argparse.ArgumentParser(description='Memory Maze offline LeWM pipeline')
     sub=parser.add_subparsers(dest='command',required=True)
     p=sub.add_parser('acquire');p.add_argument('--root',default='data');p.add_argument('--train',type=int,default=160);p.add_argument('--eval',type=int,default=30);p.add_argument('--eval-skip',type=int,default=10);p.add_argument('--workers',type=int,default=4)
-    p=sub.add_parser('prepare');p.add_argument('--root',default='data');p.add_argument('--scaled-protocol',action='store_true');p.add_argument('--model-train',type=int,default=500)
+    p=sub.add_parser('prepare');p.add_argument('--root',default='data');p.add_argument('--scaled-protocol',action='store_true');p.add_argument('--model-train',type=int,choices=[500,2000],default=500)
+    p=sub.add_parser('validate');p.add_argument('--root',default='data')
     p=sub.add_parser('pretrained');p.add_argument('--out',default='data/pretrained/cube')
     p=sub.add_parser('segments');p.add_argument('--splits',default='data/splits.json');p.add_argument('--out',default='data/segments_candidates.json');p.add_argument('--max-per-episode',type=int,default=1);p.add_argument('--max-step',type=int,default=50)
     p=sub.add_parser('review');p.add_argument('--segments',default='data/segments_candidates.json');p.add_argument('--decisions',required=True);p.add_argument('--out',default='data/segments_reviewed.json')
@@ -23,7 +24,14 @@ def main():
         acquire(args.root,args.train,args.eval,args.eval_skip,args.workers)
     elif args.command=='prepare':
         from .data import make_splits
-        print(make_splits(args.root,counts=(args.model_train,100,300,100,200),protocol=True)['counts'] if args.scaled_protocol else make_splits(args.root)['counts'])
+        if args.scaled_protocol:
+            expected=read_json(Path(__file__).resolve().parents[1]/'protocol/expected_membership.json')[str(args.model_train)]
+            result=make_splits(args.root,counts=(args.model_train,100,300,100,200),protocol=True,expected_episode_ids=expected)
+        else:result=make_splits(args.root)
+        print(result['counts'])
+    elif args.command=='validate':
+        from .validation import validate_data
+        print(validate_data(args.root))
     elif args.command=='pretrained':
         from .pretrained import download_cube
         print(download_cube(args.out))
@@ -37,7 +45,7 @@ def main():
             decision=decisions.get(seg['segment_id'])
             if decision:
                 if decision['status'] not in ['approved','rejected']:raise ValueError('Invalid review decision')
-                seg.update(review_status=decision['status'],review_note=decision['note'])
+                seg.update(review_status=decision['status'],review_note=decision['note'],reviewer=decision.get('reviewer','inherited recorded review'))
         result['status']='initial-context review recorded; future visibility remains heuristic unless separately annotated'
         write_json(args.out,result)
     elif args.command=='train':

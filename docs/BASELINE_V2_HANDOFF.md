@@ -2,11 +2,11 @@
 
 ## 공통 조건
 
-LeWM train 500개와 2,000개 실험은 **모델 학습 episode 수만 다르다.** 모델 검증 100·Probe 학습 후보 300·Probe 검증 후보 100·test 후보 200, 초기 가중치 revision, action normalizer의 공통 500개, seed 42, batch 16, 2,500 update, 학습률·loss·모델 선택·구간·0~50 readout 규칙을 고정한다. 두 실험은 같은 40,000 window 추출 예산이며 전체 epoch 수를 맞추는 비교가 아니다.
+LeWM train 500개와 2,000개 실험은 **모델 학습 episode 수만 다르다.** 실제 GPU·Python·PyTorch 버전도 동일하게 맞추고 실행 환경 기록을 대조한다. 모델 검증 100·Probe 학습 후보 300·Probe 검증 후보 100·test 후보 200, 초기 가중치 revision, action normalizer의 공통 500개, seed 42, batch 16, 10,000 update, 학습률·loss·모델 선택·구간·0~50 readout 규칙을 고정한다. 두 실험은 같은 160,000 window 추출 예산이며 전체 epoch 수를 맞추는 비교가 아니다.
 
-공식 train 파일명을 정렬해 val 100 → Probe train 300 → Probe val 100을 먼저 예약하고, 이후 model train을 500/2,000개 취한다. 큰 학습 목록의 첫 500개가 작은 학습 목록과 같아야 한다. Eval은 기존 QA·과거 평가 40개를 건너뛴 200개다. 물리 폴더에 이전 캐시가 더 있어도 `acquisition.json`과 `splits.json`에 기록된 목록만 사용한다.
+공식 train 파일명을 정렬하고 기존 첫 160개의 100/20/30/10 역할을 유지한다. 추가 인덱스 160~559는 model train, 560~639는 model val, 640~909는 Probe train, 910~999는 Probe val이다. 2,000개 실험은 1000~2499를 model train에 추가한다. 큰 학습 목록의 첫 500개가 작은 학습 목록과 같아야 한다. Eval은 기존 QA·과거 평가 40개를 건너뛴 200개다. 물리 폴더에 이전 캐시가 더 있어도 `acquisition.json`과 `splits.json`에 기록된 목록만 사용한다.
 
-초기 공 가시성을 검수한 구간만 최종 Probe에 사용한다. 후보 수와 실제 승인 수는 다르므로 결과에 모두 기록한다. 미래 가시성 휴리스틱은 정밀 객체 mask가 아니다. 0-step은 관측 readout이며 1~50은 실제 미래 화면 없이 생성한 예측 readout이다.
+초기 공 가시성을 검수한 구간만 최종 Probe에 사용한다. 후보 수와 실제 승인 수는 다르므로 결과에 모두 기록한다. 미래 가시성 휴리스틱은 정밀 객체 mask가 아니다. 유효 구간 목표는 Probe train 200·val 50·test 100개 이상이다. 0-step은 관측 readout이며 1~50은 실제 미래 화면 없이 생성한 예측 readout이다.
 
 ## 환경과 데이터
 
@@ -26,6 +26,17 @@ python -m memorymaze_lewm pretrained --out data/pretrained/cube
 ```
 
 원본 데이터와 다운로드 SHA는 `data/acquisition.json`에 기록된다. 추가 자료를 model-train에 넣으려고 model-val·Probe·test를 옮기지 않는다. `splits.json`의 `normalizer_train`은 두 규모 모두 같은 500 episode다. Fixed holdout·공통 normalizer·nested train 목록은 `tests/test_dense_protocol.py`로 검사한다.
+
+## 클라우드 실행
+
+전용 환경은 `~/workspace/.envs/lewm-baseline-v2`에 준비하고 `scripts/cluster_run.sh`를 Job 명령의 공통 wrapper로 사용한다. 이 wrapper는 CPU 스레드 3, 캐시·임시 파일을 workspace에 고정한다. `scripts/prepare_cloud.py 500`은 validate → 고정 분할 → 구간 생성을 수행한다. 2,000개에는 마지막 인자만 2000을 쓴다.
+
+```bash
+jobsubmit -c 3 -m 20G -G 0 -t 0-00:30:00 bash scripts/cluster_run.sh scripts/prepare_cloud.py 500
+jobsubmit -p 4000ada -c 3 -m 20G -G 1 -t 0-04:00:00 bash scripts/cluster_run.sh -m memorymaze_lewm train --config configs/baseline500.json --splits data/splits.json --pretrained data/pretrained/cube --run runs/baseline500_001
+```
+
+첫 Job이 정상 종료된 뒤 다음 단계를 제출한다. 같은 본 학습 Job의 중단 재시작은 동일 config·split과 `--resume`으로 수행한다.
 
 ## 공동 학습과 모델 선택
 
@@ -68,7 +79,7 @@ Probe는 모든 0~50 latent를 함께 쓰는 단일 ridge linear regression이�
 
 각 step에서 공 상대 좌표 L2, train 전체 평균 좌표 기준, step별 train 평균 좌표 기준, 0-step 대비 증가량을 보고한다. 모델끼리는 같은 test 구간과 공통 성공 구간으로 비교하고 실패 수·사유를 남긴다. 같은 episode의 51개 행을 독립 51개 경험으로 세지 않는다. 현재 실험은 episode 분리이며 미로 배치 완전 독립은 보장하지 않는다.
 
-최대 50 이후 확장은 이번 test를 보고 조절하지 않는다. Probe-val에서 50−0-step 오차의 episode paired bootstrap 95% 구간을 참고하되, 하락 미검출을 성능 유지 증명으로 해석하지 않는다. 나중에 최대 step 100 등으로 protocol을 먼저 고정하고 `segments`와 `rollout` 모두 같은 `--max-step`으로 다시 실행한다.
+최대 50 이후 확장은 이번 test를 보고 조절하지 않는다. Probe-val에서 평균 좌표 기준보다 유용한 성능이 유지되는지와 50−0-step 오차의 episode paired bootstrap 95% 구간을 함께 참고하되, 하락 미검출을 성능 유지 증명으로 해석하지 않는다. 나중에 최대 step 100 등으로 protocol을 먼저 고정하고 `segments`와 `rollout` 모두 같은 `--max-step`으로 다시 실행한다. 우선 기존 Probe를 고정해 51~100에 적용하고, Probe까지 재학습한 실험은 기존 0~50도 재평가해 별도로 보고한다. 현재 `probe` 명령은 재학습 경로이며 고정 Probe의 적용은 `memorymaze_lewm.probe.predict`로 구분한다.
 
 ## 확보 모델 사용과 모델 개선
 
@@ -87,3 +98,5 @@ Probe는 모든 0~50 latent를 함께 쓰는 단일 ridge linear regression이�
 소스 commit·환경·config·초기 가중치 출처/hash, train/val/Probe/test episode 명세/hash, 공통 normalizer, 고정 validation index, 검수 결정/승인 목록, best/export/Probe hash, 학습 로그·곡선·매 step 지표·실패 목록·재로드 검증을 함께 전달한다. 로컬·서버 절대경로와 접속 정보는 공개 결과에서 제거한다.
 
 초기 가중치는 [공식 LeWM Cube 모델](https://huggingface.co/quentinll/lewm-cube)의 고정 revision이며 모델 카드의 MIT 조건과 vendor 라이선스·출처 기록을 함께 유지한다. 로봇팔 실험을 수행한다는 뜻은 아니다.
+
+GitHub 반영은 작업 브랜치 → PR을 사용한다. main 직접 push는 차단되며 소유자 계정만 PR을 반영할 수 있다. 팀원에게 병합 권한을 주거나 보호 규칙을 바꾸지 않는다.

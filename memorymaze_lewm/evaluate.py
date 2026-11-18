@@ -58,6 +58,18 @@ def run_probe(latent_dir,out_dir):
         score=np.mean([v['mean_l2'] for v in metrics.values()])
         scores.append({'lambda':lam,'validation_mean_l2':float(score)})
         if score<=best_score:best_score=score;best=model
+    learning_curve=[]
+    ordered=np.unique(train['episode'])
+    for count in sorted(set([min(n,len(ordered)) for n in [50,100,200,len(ordered)]])):
+        mask=np.isin(train['episode'],ordered[:count]);cw=balanced_weights(train['episode'][mask],train['horizon'][mask])
+        curve_score=np.inf;curve_lambda=None
+        for lam in [0,1e-4,1e-3,1e-2,.1,1]:
+            cm=fit_ridge(train['latent'][mask],train['target'][mask],cw,lam)
+            ce=np.linalg.norm(predict(cm,val['latent'])-val['target'],axis=-1)
+            score=float(np.mean([v['mean_l2'] for v in episode_metrics(ce,val['episode'],val['horizon'],steps).values()]))
+            if score<=curve_score:curve_score=score;curve_lambda=lam
+        learning_curve.append({'episodes':count,'selected_lambda':curve_lambda,'validation_mean_l2':curve_score,
+                               'subset_policy':'filename-sorted nested train episodes; diagnostic only, final Probe uses all approved train episodes'})
     np.savez_compressed(out/'probe.npz',**best)
     with np.load(out/'probe.npz',allow_pickle=False) as f:best={k:f[k] for k in f.files}
     validation_errors=np.linalg.norm(predict(best,val['latent'])-val['target'],axis=-1)
@@ -84,6 +96,7 @@ def run_probe(latent_dir,out_dir):
             'hidden_heuristic':episode_metrics(errors[test['visibility']=='hidden'],test['episode'][test['visibility']=='hidden'],test['horizon'][test['visibility']=='hidden'],steps),
             'provenance':read_json(root/'provenance.json'),'coordinate_units':'Memory Maze grid-cell coordinates; two ego-relative components',
             'horizons':steps,'horizon_zero_kind':'observed initial latent; not a future prediction' if first==0 else 'not present',
+            'probe_learning_curve':learning_curve,
             'validation_decline':decline_summary(validation_errors,val['episode'],val['horizon']),
             'probe_train_episodes':len(ids[0]),'probe_val_episodes':len(ids[1]),'test_episodes':len(ids[2])}
     write_json(out/'metrics.json',result)

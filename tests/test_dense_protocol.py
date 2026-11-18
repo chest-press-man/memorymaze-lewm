@@ -66,6 +66,7 @@ def test_probe_uses_dense_zero_reference_and_validation_only(tmp_path):
     assert metrics['model']['50']['mean_l2']<1e-7
     assert metrics['horizon_zero_kind']=='observed initial latent; not a future prediction'
     assert 'validation_decline' in metrics
+    assert metrics['probe_learning_curve'][-1]['episodes']==3
 
 
 def test_checkpoint_variance_gate_rejects_collapsed_or_nonfinite_states():
@@ -93,3 +94,35 @@ def test_real_adapter_zero_is_last_initial_observation():
     adapter=LeWMAdapter(RecordingModel(),{'history':3,'image_size':224},{'mean':[0]*6,'std':[1]*6})
     zero=adapter.initial_latent(np.zeros((3,64,64,3),np.uint8))
     np.testing.assert_array_equal(zero,[20.])
+
+
+def test_scaled_split_preserves_all_original_train_roles(tmp_path,monkeypatch):
+    from memorymaze_lewm import data
+    records=[{'path':f'/old/train/{i:04}.npz','source':'train'} for i in range(1000)]
+    records += [{'path':f'/old/eval/e{i:04}.npz','source':'eval'} for i in range(200)]
+    (tmp_path/'acquisition.json').write_text(json.dumps({'episodes':records}))
+    monkeypatch.setattr(data,'cached_episode',lambda p:{'maze_layout':np.ones((1,2,2),np.uint8)})
+    result=data.make_splits(tmp_path,counts=(500,100,300,100,200),protocol=True)['splits']
+    assert Path(result['model_train'][0]).name=='0000.npz'
+    assert Path(result['model_val'][0]).name=='0100.npz'
+    assert Path(result['probe_train'][0]).name=='0120.npz'
+    assert Path(result['probe_val'][0]).name=='0150.npz'
+    assert Path(result['model_train'][100]).name=='0160.npz'
+
+
+def test_validation_rebases_transferred_paths_and_rejects_corruption(tmp_path):
+    import hashlib
+    from memorymaze_lewm.validation import validate_data
+    folder=tmp_path/'train';folder.mkdir();p=folder/'one.npz'
+    n=1001
+    np.savez_compressed(p,image=np.zeros((n,64,64,3),np.uint8),
+        action=np.concatenate([np.zeros((1,6)),np.eye(6)[np.arange(1000)%6]]),
+        targets_vec=np.zeros((n,3,2)),targets_pos=np.zeros((n,3,2)),
+        reset=np.arange(n)==0,terminal=np.zeros(n,bool))
+    b=p.read_bytes()
+    record={'path':'/old/server/train/one.npz','source':'train','episode_id':'one',
+            'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'frames':n}
+    (tmp_path/'acquisition.json').write_text(json.dumps({'episodes':[record]}))
+    assert validate_data(tmp_path)['episodes']==1
+    p.write_bytes(b+b'corrupt')
+    with pytest.raises(ValueError,match='size/hash'):validate_data(tmp_path)
