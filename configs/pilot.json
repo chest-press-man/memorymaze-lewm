@@ -1,0 +1,8 @@
+{
+  "history": 3, "image_size": 224, "frameskip": 1,
+  "seed": 42, "batch_size": 2, "updates": 20,
+  "learning_rate": 0.00005, "weight_decay": 0.001,
+  "sigreg_weight": 0.09, "sigreg_projections": 1024,
+  "validate_every": 10, "validation_batches": 4,
+  "threads": 4, "device": "cpu", "purpose": "pipeline_pilot"
+}

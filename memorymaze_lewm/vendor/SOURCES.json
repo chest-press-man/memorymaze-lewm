@@ -1,0 +1,32 @@
+[
+  {
+    "file": "lewm.py",
+    "url": "https://raw.githubusercontent.com/galilai-group/stable-worldmodel/21446f1ede6d5284e981bd7b47f432b994e6d812/stable_worldmodel/wm/lewm/lewm.py",
+    "sha256": "10ad1c2365b569ad3f9cbda17c8154d799c3b0c4fc5d707a44dca600b5ca8315",
+    "modifications": "none"
+  },
+  {
+    "file": "module.py",
+    "url": "https://raw.githubusercontent.com/galilai-group/stable-worldmodel/21446f1ede6d5284e981bd7b47f432b994e6d812/stable_worldmodel/wm/lewm/module.py",
+    "sha256": "d276fb896712bed23f70f25ae9774e5ce7b3ab44fbb6bf4dea61065ba1388ef9",
+    "modifications": "none"
+  },
+  {
+    "file": "STABLE_WORLDMODEL_LICENSE",
+    "url": "https://raw.githubusercontent.com/galilai-group/stable-worldmodel/21446f1ede6d5284e981bd7b47f432b994e6d812/LICENSE",
+    "sha256": "ff0b00150aa5d2ad4e4658a5f7b90d9316f9baa2199429255e61e3a47ee54252",
+    "modifications": "none"
+  },
+  {
+    "file": "LEWM_LICENSE",
+    "url": "https://raw.githubusercontent.com/lucas-maes/le-wm/8edfeb336732b5f3ce7b8b210d0ba370a09e2cac/LICENSE",
+    "sha256": "4882021920cbd61e050e4dc2e02440e9bd36ea4cbc5803e738a2ee3d63502e07",
+    "modifications": "none"
+  },
+  {
+    "file": "sigreg.py",
+    "url": "https://raw.githubusercontent.com/lucas-maes/le-wm/8edfeb336732b5f3ce7b8b210d0ba370a09e2cac/module.py",
+    "sha256": "a38779f91bdd2f6acf4d780bcb0d4dd71ff35050aa501cb653bee4e0e4617e21",
+    "modifications": "Extract SIGReg class verbatim; retain only torch import"
+  }
+]
