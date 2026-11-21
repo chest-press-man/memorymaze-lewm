@@ -54,3 +54,17 @@ Adapter 계약은 `initial_latent(initial_images)->[D]`, `rollout(initial_images
 기존 trainer는 4-frame window로 1-step 세 위치를 공동 학습한다. 긴 시퀀스 학습이 필요한 recurrent 방법을 모듈 하나만 바꿔 같은 방식으로 학습 가능하다고 가정하면 안 된다. 그 경우 별도 학습 경로와 비교 조건을 정의한 뒤 공통 평가 adapter에 연결한다.
 
 검증: `tests/test_model.py`는 모델 교체·causal rollout을, `tests/test_dense_protocol.py`는 0-step/연속 step 정렬·분할 보존·선택 gate를 검사한다. GitHub 기여는 별도 브랜치 → PR이며 main 병합은 소유자만 한다.
+
+## 학습 모델 인터페이스
+
+`build_model(model_config)`의 인자는 학습 hyperparameter JSON이 아니라 encoder·predictor·action encoder·projector 설정을 담은 **모델 구조 config**다. 아래 규약을 제공하는 `torch.nn.Module`을 반환한다.
+
+```text
+encode({pixels: [B,4,3,224,224], action: [B,3,6]})
+  -> {emb: [B,4,D], act_emb: [B,3,A]}
+predict(emb: [B,3,D], act_emb: [B,3,A]) -> [B,3,D]
+action_encoder(action: [B,T,6]) -> [B,T,A]
+reset_episode() -> 선택 구현; window/평가 구간 시작의 memory 초기화
+```
+
+별도 평가 API의 `build_adapter(checkpoint,device)`에서 `checkpoint`는 **이미 torch.load한 dict**다. 파일 경로를 다시 여는 인자가 아니다. 모듈의 import 경로는 checkpoint에 저장되므로 팀원의 실행 환경에도 같은 모듈이 있어야 한다.
