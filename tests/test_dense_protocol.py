@@ -126,3 +126,12 @@ def test_validation_rebases_transferred_paths_and_rejects_corruption(tmp_path):
     assert validate_data(tmp_path)['episodes']==1
     p.write_bytes(b+b'corrupt')
     with pytest.raises(ValueError,match='size/hash'):validate_data(tmp_path)
+
+
+def test_reference_manifest_rejects_silently_changed_shared_bytes(tmp_path):
+    from memorymaze_lewm.validation import validate_data
+    record={'path':'/other/train/one.npz','source':'train','episode_id':'one','sha256':'a'*64,'bytes':1,'frames':1001}
+    (tmp_path/'acquisition.json').write_text(json.dumps({'episodes':[record]}))
+    ref=tmp_path/'reference.json';ref.write_text(json.dumps({'episodes':[dict(record,sha256='b'*64)]}))
+    with pytest.raises(ValueError,match='baseline reference'):
+        validate_data(tmp_path,reference_path=ref)

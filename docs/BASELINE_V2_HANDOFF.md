@@ -25,6 +25,8 @@ python -m memorymaze_lewm prepare --root data --scaled-protocol --model-train 20
 python -m memorymaze_lewm pretrained --out data/pretrained/cube
 ```
 
+공통 1,200개 데이터의 SHA는 `protocol/data_reference.json`, 승인/거부 판정은 `protocol/review_decisions.json`에 고정했다. `validate --reference protocol/data_reference.json`으로 공유 원본의 실제 바이트가 같은지 확인한다. `scripts/apply_review_cloud.py`는 필요한 경우 고정 판정을 data에 복사하고 동일 판정·후보 ID를 검사한다.
+
 원본 데이터와 다운로드 SHA는 `data/acquisition.json`에 기록된다. 추가 자료를 model-train에 넣으려고 model-val·Probe·test를 옮기지 않는다. `splits.json`의 `normalizer_train`은 두 규모 모두 같은 500 episode다. Fixed holdout·공통 normalizer·nested train 목록은 `tests/test_dense_protocol.py`로 검사한다.
 
 ## 클라우드 실행
@@ -36,7 +38,7 @@ jobsubmit -c 3 -m 20G -G 0 -t 0-00:30:00 bash scripts/cluster_run.sh scripts/pre
 jobsubmit -p 4000ada -c 3 -m 20G -G 1 -t 0-04:00:00 bash scripts/cluster_run.sh -m memorymaze_lewm train --config configs/baseline500.json --splits data/splits.json --pretrained data/pretrained/cube --run runs/baseline500_001
 ```
 
-첫 Job이 정상 종료된 뒤 다음 단계를 제출한다. 같은 본 학습 Job의 중단 재시작은 동일 config·split과 `--resume`으로 수행한다.
+첫 Job이 정상 종료된 뒤 CPU Job으로 `scripts/apply_review_cloud.py`를 실행해 고정 판정을 적용한다. 각 Job의 성공과 산출물을 확인한 뒤 다음 단계를 제출한다. 같은 본 학습 Job의 중단 재시작은 동일 config·split과 `--resume`으로 수행한다.
 
 ## 공동 학습과 모델 선택
 
@@ -61,7 +63,7 @@ python -m memorymaze_lewm segments --splits data/splits.json \
   --max-step 50 --out data/segments_candidates.json
 # 동일 후보·초기 관측을 검수한 review_decisions.json을 적용
 python -m memorymaze_lewm review --segments data/segments_candidates.json \
-  --decisions data/review_decisions.json --out data/segments_reviewed.json
+  --decisions protocol/review_decisions.json --out data/segments_reviewed.json
 python -m memorymaze_lewm rollout --checkpoint runs/baseline500_001/checkpoints/best.pt \
   --segments data/segments_reviewed.json --device cuda --threads 3 \
   --max-step 50 --out runs/baseline500_001/latents
@@ -80,6 +82,8 @@ Probe는 모든 0~50 latent를 함께 쓰는 단일 ridge linear regression이�
 각 step에서 공 상대 좌표 L2, train 전체 평균 좌표 기준, step별 train 평균 좌표 기준, 0-step 대비 증가량을 보고한다. 모델끼리는 같은 test 구간과 공통 성공 구간으로 비교하고 실패 수·사유를 남긴다. 같은 episode의 51개 행을 독립 51개 경험으로 세지 않는다. 현재 실험은 episode 분리이며 미로 배치 완전 독립은 보장하지 않는다.
 
 최대 50 이후 확장은 이번 test를 보고 조절하지 않는다. Probe-val에서 평균 좌표 기준보다 유용한 성능이 유지되는지와 50−0-step 오차의 episode paired bootstrap 95% 구간을 함께 참고하되, 하락 미검출을 성능 유지 증명으로 해석하지 않는다. 나중에 최대 step 100 등으로 protocol을 먼저 고정하고 `segments`와 `rollout` 모두 같은 `--max-step`으로 다시 실행한다. 우선 기존 Probe를 고정해 51~100에 적용하고, Probe까지 재학습한 실험은 기존 0~50도 재평가해 별도로 보고한다. 현재 `probe` 명령은 재학습 경로이며 고정 Probe의 적용은 `memorymaze_lewm.probe.predict`로 구분한다.
+
+구체적인 Python 로딩·예측 예시는 [모델 사용·개선 접점](BASELINE_MODEL_USAGE.md)을 참고한다.
 
 ## 확보 모델 사용과 모델 개선
 
@@ -100,3 +104,12 @@ Probe는 모든 0~50 latent를 함께 쓰는 단일 ridge linear regression이�
 초기 가중치는 [공식 LeWM Cube 모델](https://huggingface.co/quentinll/lewm-cube)의 고정 revision이며 모델 카드의 MIT 조건과 vendor 라이선스·출처 기록을 함께 유지한다. 로봇팔 실험을 수행한다는 뜻은 아니다.
 
 GitHub 반영은 작업 브랜치 → PR을 사용한다. main 직접 push는 차단되며 소유자 계정만 PR을 반영할 수 있다. 팀원에게 병합 권한을 주거나 보호 규칙을 바꾸지 않는다.
+
+## 학습 후 같은 마무리 절차
+
+```bash
+jobsubmit -p 4000ada -c 3 -m 20G -G 1 -t 0-01:00:00 bash scripts/cluster_run.sh scripts/finish_baseline.py runs/baseline500_001
+# 2,000개에는 run 경로만 runs/baseline2000_001로 변경
+```
+
+이 스크립트는 baseline 공통 초기화 조건에서 rollout → Probe·test → 별도 관측 진단 → export·재로드 검증을 수행한다. 같은 출력 폴더를 덮어쓰지 않는다. 개선 모델이 다른 초기화·adapter를 쓰면 공개 provenance와 해당 CLI 경로를 그 모델에 맞게 제공한다.

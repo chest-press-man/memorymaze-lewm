@@ -98,6 +98,7 @@ def run_probe(latent_dir,out_dir):
             'horizons':steps,'horizon_zero_kind':'observed initial latent; not a future prediction' if first==0 else 'not present',
             'probe_learning_curve':learning_curve,
             'validation_decline':decline_summary(validation_errors,val['episode'],val['horizon']),
+            'probe_input_dimension':int(train['latent'].shape[1]),'probe_parameter_count':int(train['latent'].shape[1]*2+2),
             'probe_train_episodes':len(ids[0]),'probe_val_episodes':len(ids[1]),'test_episodes':len(ids[2])}
     write_json(out/'metrics.json',result)
     keys=['episode','segment','horizon','source_step','object_id','visibility','review_status']

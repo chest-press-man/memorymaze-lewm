@@ -8,9 +8,13 @@ from .data import load_episode
 from .io import read_json,sha256,write_json
 
 
-def validate_data(data_root):
+def validate_data(data_root,reference_path=None):
     root=Path(data_root);records=read_json(root/'acquisition.json')['episodes']
     if not records:raise ValueError('Empty acquisition manifest')
+    if reference_path is not None:
+        reference={r['episode_id']:r['sha256'] for r in read_json(reference_path)['episodes']}
+        current={r['episode_id']:r['sha256'] for r in records}
+        if any(current.get(k)!=v for k,v in reference.items()):raise ValueError('Shared files differ from the baseline reference')
     seen=set();total=0
     for record in records:
         if record['source'] not in ['train','eval']:raise ValueError('Unknown data source')

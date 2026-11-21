@@ -9,7 +9,7 @@ def main():
     sub=parser.add_subparsers(dest='command',required=True)
     p=sub.add_parser('acquire');p.add_argument('--root',default='data');p.add_argument('--train',type=int,default=160);p.add_argument('--eval',type=int,default=30);p.add_argument('--eval-skip',type=int,default=10);p.add_argument('--workers',type=int,default=4)
     p=sub.add_parser('prepare');p.add_argument('--root',default='data');p.add_argument('--scaled-protocol',action='store_true');p.add_argument('--model-train',type=int,choices=[500,2000],default=500)
-    p=sub.add_parser('validate');p.add_argument('--root',default='data')
+    p=sub.add_parser('validate');p.add_argument('--root',default='data');p.add_argument('--reference')
     p=sub.add_parser('pretrained');p.add_argument('--out',default='data/pretrained/cube')
     p=sub.add_parser('segments');p.add_argument('--splits',default='data/splits.json');p.add_argument('--out',default='data/segments_candidates.json');p.add_argument('--max-per-episode',type=int,default=1);p.add_argument('--max-step',type=int,default=50)
     p=sub.add_parser('review');p.add_argument('--segments',default='data/segments_candidates.json');p.add_argument('--decisions',required=True);p.add_argument('--out',default='data/segments_reviewed.json')
@@ -31,7 +31,7 @@ def main():
         print(result['counts'])
     elif args.command=='validate':
         from .validation import validate_data
-        print(validate_data(args.root))
+        print(validate_data(args.root,args.reference))
     elif args.command=='pretrained':
         from .pretrained import download_cube
         print(download_cube(args.out))

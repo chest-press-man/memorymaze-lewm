@@ -29,8 +29,8 @@ LeWM 학습 500·검증 100, Probe 학습 후보 300·검증 후보 100·test �
 - [x] `model.py`·`rollout.py`·`segments.py`: 0-step과 전체 미래 step, causal·시점·길이 검사.
 - [x] `train.py`: 고정 validation window·분산 gate·공통 통계·checkpoint provenance.
 - [x] `evaluate.py`: 입력의 실제 step 범위 사용, episode 균형·검증 선택·0 기준·bootstrap.
-- [ ] 공식 자료 확보·검사, 초기 공 가시성 검수, GPU smoke·본 학습·새 Probe·test·재로드 실행.
-- [ ] 결과 요약·2,000개 실행 절차·모델 개선 접점 작성, 테스트 후 GitHub 업로드.
+- [x] 공식 자료 확보·검사, 초기 공 가시성 검수, GPU smoke·본 학습·새 Probe·test·재로드 실행.
+- [x] 결과 요약·2,000개 실행 절차·모델 개선 접점 작성, 테스트 후 GitHub 업로드.
 
 실행은 별도 worktree·별도 data/run에서 진행한다. 학과 클라우드에서 전용 SSH 키로 접속하고 jobsubmit으로만 계산 작업을 실행한다. 연구실 실행은 이번 baseline으로 사용하지 않는다. GitHub는 작업 브랜치와 PR을 사용하며 main 직접 push를 하지 않는다. 기존 데이터·보고서·실험 결과를 덮어쓰지 않는다.
 

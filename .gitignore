@@ -28,3 +28,6 @@ dist/
 *.pem
 *.key
 .DS_Store
+
+# Local execution records
+execution/
