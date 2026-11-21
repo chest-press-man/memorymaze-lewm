@@ -13,7 +13,7 @@ from .probe import fit_ridge,predict
 def diagnose(checkpoint,segments_path,out_dir,device='cpu'):
     out=Path(out_dir)
     if out.exists() and any(out.iterdir()):raise FileExistsError('Use a new diagnostic directory')
-    out.mkdir(parents=True,exist_ok=True);torch.set_num_threads(4)
+    out.mkdir(parents=True,exist_ok=True);torch.set_num_threads(3)
     adapter=load_adapter(checkpoint,device);groups={s:[] for s in ['probe_train','probe_val','test']}
     with torch.inference_mode():
         for seg in read_json(segments_path)['segments']:

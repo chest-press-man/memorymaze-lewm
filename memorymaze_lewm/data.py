@@ -5,7 +5,7 @@ import numpy as np
 
 from .io import read_json, write_json
 
-HORIZONS=[1,3,5,10,20,30,40,50]
+HORIZONS=list(range(51))
 
 
 def load_episode(path):
@@ -53,21 +53,38 @@ def validate_splits(splits):
         seen.update(ids)
 
 
-def make_splits(data_root,counts=(100,20,30,10,30)):
+def make_splits(data_root,counts=(100,20,30,10,30),protocol=False,expected_episode_ids=None):
     records=read_json(Path(data_root)/'acquisition.json')['episodes']
     train=sorted([str(Path(data_root).resolve()/'train'/Path(r['path']).name) for r in records if r['source']=='train'])
     test=sorted([str(Path(data_root).resolve()/'eval'/Path(r['path']).name) for r in records if r['source']=='eval'])
+    if len(counts)!=5 or any(c<1 for c in counts):raise ValueError('Five positive split counts required')
     if len(train)<sum(counts[:4]) or len(test)<counts[4]:raise ValueError('Acquire enough episodes first')
-    splits={};offset=0
-    for name,count in zip(['model_train','model_val','probe_train','probe_val'],counts[:4]):
-        splits[name]=train[offset:offset+count];offset+=count
+    names=['model_train','model_val','probe_train','probe_val']
+    if protocol:
+        if counts[0]<500 or tuple(counts[1:])!=(100,300,100,200):raise ValueError('Scaled protocol fixes val/Probe/test at 100/300/100/200')
+        # Preserve the original first 160 roles and the already-planned stage-1 membership.
+        splits={};offset=0
+        for name,count in zip(names,[100,20,30,10]):
+            splits[name]=train[offset:offset+count];offset+=count
+        for name,count in zip(names,[400,80,270,90]):
+            splits[name]+=train[offset:offset+count];offset+=count
+        splits['model_train']+=train[1000:1000+counts[0]-500]
+    else:
+        splits={};offset=0
+        for name,count in zip(names,counts[:4]):
+            splits[name]=train[offset:offset+count];offset+=count
     splits['test']=test[:counts[4]];validate_splits(splits)
+    if expected_episode_ids is not None:
+        actual={k:[Path(p).name for p in v] for k,v in splits.items()}
+        if actual!=expected_episode_ids:raise ValueError('Episode membership differs from the previously reserved protocol; do not silently reassign')
     layouts={}
     for name,paths in splits.items():
         layouts[name]={cached_episode(p)['maze_layout'][0].tobytes().hex() for p in paths}
     overlaps={f'{a}/{b}':len(layouts[a]&layouts[b]) for a in layouts for b in layouts if a<b}
     result={'splits':splits,'counts':{k:len(v) for k,v in splits.items()},'layout_overlaps':overlaps,
             'layout_policy':'episode-disjoint; layout overlap measured, not silently assumed absent'}
+    if protocol:
+        result.update(protocol='fixed-holdouts-v2',normalizer_train=splits['model_train'][:500],normalizer_policy='fixed common 500 training episodes')
     write_json(Path(data_root)/'splits.json',result)
     return result
 

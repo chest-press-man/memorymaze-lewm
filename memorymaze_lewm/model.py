@@ -69,6 +69,13 @@ class LeWMAdapter:
         if reset is not None:reset()
 
     @torch.inference_mode()
+    def initial_latent(self,initial_images):
+        self.reset_episode()
+        if len(initial_images)!=self.config['history']:raise ValueError('Invalid initial history')
+        pixels=preprocess(initial_images,self.config['image_size']).unsqueeze(0).to(self.device)
+        return self.model.encode({'pixels':pixels})['emb'][0,-1].cpu().numpy()
+
+    @torch.inference_mode()
     def rollout(self,initial_images,past_actions,future_actions):
         self.reset_episode()
         history=self.config['history']
